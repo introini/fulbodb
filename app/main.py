@@ -13,6 +13,9 @@ load_dotenv()
 
 app = FastAPI()
 client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("MONGODB_URL"))
+db_list = client.list_database_names()
+
+db = client['fulbodb']
 db = client.fulbodb
 
 @app.post("/", response_description="Add new team", response_model=models.TeamModel)
@@ -50,6 +53,24 @@ async def show_team(slug: str):
     raise HTTPException(status_code=404, detail=f"team {slug} not found")
 
 
+@app.put("/teams/{slug}", response_description="Update a team by slug", response_model=models.TeamModel)
+async def update_team(slug: str, team: models.UpdateTeamModel = Body(...)):
+    team = {k: v for k, v in team.dict().items() if v is not None}
+
+    if len(team) >= 1:
+        update_result = await db["teams"].update_one({"slug": slug}, {"$set": team})
+
+        if update_result.modified_count == 1:
+            if (
+                updated_team := await db["teams"].find_one({"slug": slug})
+            ) is not None:
+                return updated_team
+
+    if (existing_team := await db["teams"].find_one({"slug": slug})) is not None:
+        return existing_team
+
+    raise HTTPException(status_code=404, detail=f"team {slug} not found")
+
 @app.put("/{id}", response_description="Update a team", response_model=models.TeamModel)
 async def update_team(id: str, team: models.UpdateTeamModel = Body(...)):
     team = {k: v for k, v in team.dict().items() if v is not None}
@@ -77,3 +98,12 @@ async def delete_team(id: str):
         return JSONResponse(status_code=status.HTTP_204_NO_CONTENT)
 
     raise HTTPException(status_code=404, detail=f"team {id} not found")
+
+@app.delete("/teams/{slug}", response_description="Delete a team by slug")
+async def delete_team(slug: str):
+    delete_result = await db["teams"].delete_one({"slug": slug})
+
+    if delete_result.deleted_count == 1:
+        return JSONResponse(status_code=status.HTTP_204_NO_CONTENT)
+
+    raise HTTPException(status_code=404, detail=f"team {slug} not found")
